@@ -15,6 +15,8 @@ type OsmosisMsg struct {
 	/// that they are the admin of.
 	/// Currently, the burn from address must be the admin contract.
 	BurnTokens *BurnTokens `json:"burn_tokens,omitempty"`
+
+	// add another msg for wasmbinding
 }
 
 // CreateDenom creates a new factory denom, of denomination:

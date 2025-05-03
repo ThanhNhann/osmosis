@@ -38,5 +38,6 @@
       "source.organizeImports": "explicit"
     }
   },
-  "rust-analyzer.checkOnSave": false
+  "rust-analyzer.checkOnSave": false,
+  "workbench.editor.showTabs": "multiple"
 }
