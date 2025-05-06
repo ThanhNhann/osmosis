@@ -415,3 +415,137 @@ func TestBurn(t *testing.T) {
 		})
 	}
 }
+
+func TestForceTransfer(t *testing.T) {
+	apptesting.SkipIfWSL(t)
+	creator := RandomAccountAddress()
+	osmosis, ctx, homeDir := SetupCustomApp(t, creator)
+	defer os.RemoveAll(homeDir)
+
+	// Create denoms for valid force transfer tests
+	validDenom := bindings.CreateDenom{
+		Subdenom: "MOON",
+	}
+	err := wasmbinding.PerformCreateDenom(osmosis.TokenFactoryKeeper, osmosis.BankKeeper, ctx, creator, &validDenom)
+	require.NoError(t, err)
+
+	validDenomStr := fmt.Sprintf("factory/%s/%s", creator.String(), validDenom.Subdenom)
+
+	fromAddress := RandomAccountAddress()
+	toAddress := RandomAccountAddress()
+
+	// Mint some tokens to the from address for testing
+	amount, ok := osmomath.NewIntFromString("8080")
+	require.True(t, ok)
+
+	mintBinding := &bindings.MintTokens{
+		Denom:         validDenomStr,
+		Amount:        amount,
+		MintToAddress: fromAddress.String(),
+	}
+	err = wasmbinding.PerformMint(osmosis.TokenFactoryKeeper, osmosis.BankKeeper, ctx, creator, mintBinding)
+	require.NoError(t, err)
+
+	specs := map[string]struct {
+		forceTransfer *bindings.ForceTransfer
+		expErr        bool
+	}{
+		"valid force transfer": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      amount,
+				FromAddress: fromAddress.String(),
+				ToAddress:   toAddress.String(),
+			},
+			expErr: false,
+		},
+		"invalid denom": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       "invalid-denom",
+				Amount:      amount,
+				FromAddress: fromAddress.String(),
+				ToAddress:   toAddress.String(),
+			},
+			expErr: true,
+		},
+		"zero amount": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      osmomath.ZeroInt(),
+				FromAddress: fromAddress.String(),
+				ToAddress:   toAddress.String(),
+			},
+			expErr: true,
+		},
+		"negative amount": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      amount.Neg(),
+				FromAddress: fromAddress.String(),
+				ToAddress:   toAddress.String(),
+			},
+			expErr: true,
+		},
+		"empty from address": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      amount,
+				FromAddress: "",
+				ToAddress:   toAddress.String(),
+			},
+			expErr: true,
+		},
+		"empty to address": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      amount,
+				FromAddress: fromAddress.String(),
+				ToAddress:   "",
+			},
+			expErr: true,
+		},
+		"invalid from address": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      amount,
+				FromAddress: "invalid-address",
+				ToAddress:   toAddress.String(),
+			},
+			expErr: true,
+		},
+		"invalid to address": {
+			forceTransfer: &bindings.ForceTransfer{
+				Denom:       validDenomStr,
+				Amount:      amount,
+				FromAddress: fromAddress.String(),
+				ToAddress:   "invalid-address",
+			},
+			expErr: true,
+		},
+		"null force transfer": {
+			forceTransfer: nil,
+			expErr:        true,
+		},
+	}
+
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			// when
+			gotErr := wasmbinding.PerformForceTransfer(osmosis.TokenFactoryKeeper, ctx, creator, spec.forceTransfer)
+			// then
+			if spec.expErr {
+				require.Error(t, gotErr)
+				return
+			}
+			require.NoError(t, gotErr)
+
+			// Verify balances after successful transfer
+			if !spec.expErr {
+				fromBalance := osmosis.BankKeeper.GetBalance(ctx, fromAddress, validDenomStr)
+				toBalance := osmosis.BankKeeper.GetBalance(ctx, toAddress, validDenomStr)
+				require.Equal(t, osmomath.ZeroInt(), fromBalance.Amount)
+				require.Equal(t, amount, toBalance.Amount)
+			}
+		})
+	}
+}

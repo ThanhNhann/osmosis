@@ -16,7 +16,9 @@ type OsmosisMsg struct {
 	/// Currently, the burn from address must be the admin contract.
 	BurnTokens *BurnTokens `json:"burn_tokens,omitempty"`
 
-	// add another msg for wasmbinding
+	/// Contracts can force transfer tokens from one address to another
+	/// for a factory denom that they are the admin of.
+	ForceTransfer *ForceTransfer `json:"force_transfer,omitempty"`
 }
 
 // CreateDenom creates a new factory denom, of denomination:
@@ -47,4 +49,14 @@ type BurnTokens struct {
 	Amount osmomath.Int `json:"amount"`
 	// BurnFromAddress must be set to "" for now.
 	BurnFromAddress string `json:"burn_from_address"`
+}
+
+// ForceTransfer allows contracts to force transfer tokens from one address to another.
+// This can only be called by the admin of the token factory denom.
+// The amount must be positive and the addresses must be valid bech32 addresses.
+type ForceTransfer struct {
+	Denom       string       `json:"denom"`
+	Amount      osmomath.Int `json:"amount"`
+	FromAddress string       `json:"from_address"`
+	ToAddress   string       `json:"to_address"`
 }
