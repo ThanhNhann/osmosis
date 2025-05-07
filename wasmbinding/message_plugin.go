@@ -56,6 +56,9 @@ func (m *CustomMessenger) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddre
 		if contractMsg.BurnTokens != nil {
 			return m.burnTokens(ctx, contractAddr, contractMsg.BurnTokens)
 		}
+		if contractMsg.ForceTransfer != nil {
+			return m.forceTransfer(ctx, contractAddr, contractMsg.ForceTransfer)
+		}
 	}
 
 	return m.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
@@ -222,4 +225,37 @@ func parseAddress(addr string) (sdk.AccAddress, error) {
 		return nil, errorsmod.Wrap(err, "verify address format")
 	}
 	return parsed, nil
+}
+
+func (m *CustomMessenger) forceTransfer(ctx sdk.Context, contractAddr sdk.AccAddress, forceTransfer *bindings.ForceTransfer) (events []sdk.Event, data [][]byte, msgResponses [][]*codectypes.Any, err error) {
+	err = PerformForceTransfer(m.tokenFactory, ctx, contractAddr, forceTransfer)
+	if err != nil {
+		return nil, nil, nil, errorsmod.Wrap(err, "perform mint")
+	}
+	return nil, nil, nil, nil
+}
+
+// PerformForceTransfer performs token burning after validating tokenBurn message.
+func PerformForceTransfer(f *tokenfactorykeeper.Keeper, ctx sdk.Context, contractAddr sdk.AccAddress, forceTransfer *bindings.ForceTransfer) error {
+	if forceTransfer == nil {
+		return wasmvmtypes.InvalidRequest{Err: "force transfer null"}
+	}
+
+	if !forceTransfer.Amount.IsPositive() {
+		return wasmvmtypes.InvalidRequest{Err: "amount must be positive"}
+	}
+
+	coin := sdk.Coin{Denom: forceTransfer.Denom, Amount: forceTransfer.Amount}
+	sdkMsg := tokenfactorytypes.NewMsgForceTransfer(contractAddr.String(), coin, forceTransfer.FromAddress, forceTransfer.ToAddress)
+	if err := sdkMsg.ValidateBasic(); err != nil {
+		return err
+	}
+
+	// Force transfer through token factory / message server
+	msgServer := tokenfactorykeeper.NewMsgServerImpl(*f)
+	_, err := msgServer.ForceTransfer(ctx, sdkMsg)
+	if err != nil {
+		return errorsmod.Wrap(err, "force transferring coins from message")
+	}
+	return nil
 }

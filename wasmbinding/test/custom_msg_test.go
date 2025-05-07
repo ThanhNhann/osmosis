@@ -232,6 +232,94 @@ func TestBurnMsg(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestForceTransferMsg(t *testing.T) {
+	apptesting.SkipIfWSL(t)
+	creator := RandomAccountAddress()
+	osmosis, ctx, homeDir := SetupCustomApp(t, creator)
+	defer os.RemoveAll(homeDir)
+
+	lucky := RandomAccountAddress()
+	reflect := instantiateReflectContract(t, ctx, osmosis, lucky)
+	require.NotEmpty(t, reflect)
+
+	// lucky was broke
+	balances := osmosis.BankKeeper.GetAllBalances(ctx, lucky)
+	require.Empty(t, balances)
+
+	// Create denom for minting
+	msg := bindings.OsmosisMsg{CreateDenom: &bindings.CreateDenom{
+		Subdenom: "SUN",
+	}}
+	err := executeCustom(t, ctx, osmosis, reflect, lucky, msg, sdk.Coin{})
+	require.NoError(t, err)
+	sunDenom := fmt.Sprintf("factory/%s/%s", reflect.String(), msg.CreateDenom.Subdenom)
+
+	amount, ok := osmomath.NewIntFromString("808010808")
+	require.True(t, ok)
+
+	// Mint tokens to lucky
+	msg = bindings.OsmosisMsg{MintTokens: &bindings.MintTokens{
+		Denom:         sunDenom,
+		Amount:        amount,
+		MintToAddress: lucky.String(),
+	}}
+	err = executeCustom(t, ctx, osmosis, reflect, lucky, msg, sdk.Coin{})
+	require.NoError(t, err)
+
+	// Verify lucky has the tokens
+	balances = osmosis.BankKeeper.GetAllBalances(ctx, lucky)
+	require.Len(t, balances, 1)
+	coin := balances[0]
+	require.Equal(t, amount, coin.Amount)
+	require.Equal(t, sunDenom, coin.Denom)
+
+	// Create another address to receive the tokens
+	receiver := RandomAccountAddress()
+	receiverBalances := osmosis.BankKeeper.GetAllBalances(ctx, receiver)
+	require.Empty(t, receiverBalances)
+
+	// Force transfer tokens from lucky to receiver
+	msg = bindings.OsmosisMsg{ForceTransfer: &bindings.ForceTransfer{
+		Denom:       sunDenom,
+		Amount:      amount,
+		FromAddress: lucky.String(),
+		ToAddress:   receiver.String(),
+	}}
+	err = executeCustom(t, ctx, osmosis, reflect, lucky, msg, sdk.Coin{})
+	require.NoError(t, err)
+
+	// Verify lucky has no tokens
+	balances = osmosis.BankKeeper.GetAllBalances(ctx, lucky)
+	require.Empty(t, balances)
+
+	// Verify receiver has the tokens
+	receiverBalances = osmosis.BankKeeper.GetAllBalances(ctx, receiver)
+	require.Len(t, receiverBalances, 1)
+	coin = receiverBalances[0]
+	require.Equal(t, amount, coin.Amount)
+	require.Equal(t, sunDenom, coin.Denom)
+
+	// Try to force transfer with zero amount
+	msg = bindings.OsmosisMsg{ForceTransfer: &bindings.ForceTransfer{
+		Denom:       sunDenom,
+		Amount:      osmomath.ZeroInt(),
+		FromAddress: receiver.String(),
+		ToAddress:   lucky.String(),
+	}}
+	err = executeCustom(t, ctx, osmosis, reflect, lucky, msg, sdk.Coin{})
+	require.Error(t, err)
+
+	// Try to force transfer with negative amount
+	msg = bindings.OsmosisMsg{ForceTransfer: &bindings.ForceTransfer{
+		Denom:       sunDenom,
+		Amount:      amount.Neg(),
+		FromAddress: receiver.String(),
+		ToAddress:   lucky.String(),
+	}}
+	err = executeCustom(t, ctx, osmosis, reflect, lucky, msg, sdk.Coin{})
+	require.Error(t, err)
+}
+
 type BaseState struct {
 	StarPool  uint64
 	AtomPool  uint64
